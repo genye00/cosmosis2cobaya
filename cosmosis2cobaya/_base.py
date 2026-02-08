@@ -23,18 +23,23 @@ class base(Theory):
     check_renames = False
 
     def initialize(self):
-        if self.root_directory is None:
-            self.root_directory = os.getenv('COSMOSIS_ROOT_DIRECTORY')
-            assert self.root_directory is not None, 'You need to set root_directory or env COSMOSIS_ROOT_DIRECTORY'
         if self.ini_path is None:
             self.ini_path = os.getenv('COSMOSIS_INI_PATH')
             assert self.ini_path is not None, 'You need to set ini_path or env COSMOSIS_INI_PATH'
-        self.root_directory = str(Path(self.root_directory).absolute())
         self.ini_path = str(Path(self.ini_path).absolute())
+        self.options = cosmosis.runtime.config.Inifile(self.ini_path)
+        
+        if self.root_directory is None:
+            try:
+                self.root_directory = self.options.get('runtime', "root")
+            except cosmosis.runtime.config.CosmosisConfigurationError:
+                self.root_directory = os.getenv('COSMOSIS_ROOT_DIRECTORY')
+            assert self.root_directory is not None, 'You need to set root_directory or root in the runtime block of the ini file or env COSMOSIS_ROOT_DIRECTORY'
+        self.root_directory = str(Path(self.root_directory).absolute())
+        
         cwd = os.getcwd()
         os.chdir(self.root_directory)
 
-        self.options = cosmosis.runtime.config.Inifile(self.ini_path)
         module_name = self.name if hasattr(self, "name") else self.__class__.__name__
         self.module = cosmosis.runtime.module.Module.from_options(
             module_name,

@@ -23,9 +23,13 @@ class boltzmann(Theory):
     same_k_grid = False # set True can make FAST-PT faster (due to different unit of k between cobaya and cosmoSIS)
     # the followings make sense only if same_k_grid = True
     nk = 200
+    kmin = 1e-5 # No use
     kmax = 10. # 1/Mpc
+    kmax_extrapolate = 10.
     want_chistar = False
     want_zstar = False
+    linear_only = False # set all nonlinear spectra to be same as the linear ones
+    use_weyl = False # whether compute the weyl-weyl and density-weyl spectra
 
     def initialize(self):
         if self.zmax_background is None:
@@ -46,6 +50,8 @@ class boltzmann(Theory):
             ret['zstar'] = None
         if self.want_chistar:
             ret['CAMBdata'] = None
+        vars_pairs = [["delta_tot", "delta_tot"]]
+        if self.use_weyl: vars_pairs += [["Weyl", "Weyl"], ["Weyl", "delta_tot"]]
         if self.same_k_grid:
             self.Pk_interpolator_z = np.concatenate((
                 np.linspace(self.zmin, self.zmid, self.nz_mid, endpoint=False),
@@ -54,7 +60,8 @@ class boltzmann(Theory):
             ret['Pk_interpolator'] = {
                 'z': self.Pk_interpolator_z,
                 'k_max': self.kmax, # 1/Mpc, allow H0 up to 100
-                'nonlinear': [True, False],
+                'vars_pairs': vars_pairs,
+                'nonlinear': [True, False] if not self.linear_only else [False],
             }
         else:
             ret['Pk_grid'] = {
@@ -64,17 +71,25 @@ class boltzmann(Theory):
                 )) if self.zmid is not None else
                 np.linspace(self.zmin, self.zmax, self.nz),
                 'k_max': self.kmax, # 1/Mpc, allow H0 up to 100
-                'nonlinear': [True, False]
+                'vars_pairs': vars_pairs,
+                'nonlinear': [True, False] if not self.linear_only else [False],
             }
         return ret
     
     def get_can_provide(self):
-        return [self.renames_output.get(i, i).lower() for i in (
+        ret = [self.renames_output.get(i, i).lower() for i in (
             'cosmological_parameters',
             'distances',
             'matter_power_lin',
             'matter_power_nl',
         )]
+        if self.use_weyl:
+            ret += ['matter_weyl_power_lin',
+                    'matter_weyl_power_nl',
+                    'weyl_curvature_power_lin',
+                    'weyl_curvature_power_nl',
+                    ]
+        return ret
     
     def calculate(self, state, want_derived=True, **params_values_dict):
         block = cosmosis.datablock.DataBlock()
@@ -99,16 +114,36 @@ class boltzmann(Theory):
         if self.same_k_grid:
             z = self.Pk_interpolator_z
             kmax_power = self.kmax
-            lin_Pk = self.provider.get_Pk_interpolator(nonlinear=False, extrap_kmin=1e-5*h)
-            nolin_Pk = self.provider.get_Pk_interpolator(nonlinear=True, extrap_kmin=1e-5*h)
+            lin_Pk = self.provider.get_Pk_interpolator(nonlinear=False, extrap_kmin=1e-5*h, extrap_kmax=self.kmax_extrapolate*h, var_pair=("delta_tot", "delta_tot"))
+            nolin_Pk = self.provider.get_Pk_interpolator(nonlinear=(not self.linear_only), extrap_kmin=1e-5*h, extrap_kmax=self.kmax_extrapolate*h, var_pair=("delta_tot", "delta_tot"))
             k = np.logspace(np.log10(1e-5), np.log10(kmax_power), self.nk)
+            k2 = (k*h)**2
+            k4 = k2**2
             block.put_grid('matter_power_nl', "z", z, "k_h", k, "P_k", nolin_Pk.P(z, k*h, grid=True)*h**3)
             block.put_grid('matter_power_lin', "z", z, "k_h", k, "P_k", lin_Pk.P(z, k*h, grid=True)*h**3)
+            if self.use_weyl:
+                lin_Pk_mw = self.provider.get_Pk_interpolator(nonlinear=False, extrap_kmin=1e-5*h, extrap_kmax=self.kmax_extrapolate*h, var_pair=("delta_tot", "Weyl"))
+                lin_Pk_ww = self.provider.get_Pk_interpolator(nonlinear=False, extrap_kmin=1e-5*h, extrap_kmax=self.kmax_extrapolate*h, var_pair=("Weyl", "Weyl"))
+                nolin_Pk_mw = self.provider.get_Pk_interpolator(nonlinear=(not self.linear_only), extrap_kmin=1e-5*h, extrap_kmax=self.kmax_extrapolate, var_pair=("delta_tot", "Weyl"))
+                nolin_Pk_ww = self.provider.get_Pk_interpolator(nonlinear=(not self.linear_only), extrap_kmin=1e-5*h, extrap_kmax=self.kmax_extrapolate, var_pair=("Weyl", "Weyl"))
+                block.put_grid('matter_weyl_power_lin', "z", z, "k_h", k, "P_k", -lin_Pk_mw.P(z, k*h, grid=True)*h**3) # be careful with sign of cross spectrum
+                block.put_grid('weyl_curvature_power_lin', "z", z, "k_h", k, "P_k", lin_Pk_ww.P(z, k*h, grid=True)*h**3)
+                block.put_grid('matter_weyl_power_nl', "z", z, "k_h", k, "P_k", -nolin_Pk_mw.P(z, k*h, grid=True)*h**3) # be careful with sign of cross spectrum
+                block.put_grid('weyl_curvature_power_nl', "z", z, "k_h", k, "P_k", nolin_Pk_ww.P(z, k*h, grid=True)*h**3)
         else:
-            k, z, Pk = self.provider.get_Pk_grid(nonlinear=True)
+            k, z, Pk = self.provider.get_Pk_grid(nonlinear=(not self.linear_only), var_pair=("delta_tot", "delta_tot"))
             block.put_grid('matter_power_nl', "z", z, "k_h", k/h, "P_k", Pk*h**3)
-            k, z, Pk = self.provider.get_Pk_grid(nonlinear=False)
+            k, z, Pk = self.provider.get_Pk_grid(nonlinear=False, var_pair=("delta_tot", "delta_tot"))
             block.put_grid('matter_power_lin', "z", z, "k_h", k/h, "P_k", Pk*h**3)
+            if self.use_weyl:
+                k, z, Pk = self.provider.get_Pk_grid(nonlinear=(not self.linear_only), var_pair=("delta_tot", "weyl"))
+                block.put_grid('matter_weyl_power_nl', "z", z, "k_h", k/h, "P_k", -Pk*h**3) # be careful with sign of cross spectrum
+                k, z, Pk = self.provider.get_Pk_grid(nonlinear=False, var_pair=("delta_tot", "weyl"))
+                block.put_grid('matter_weyl_power_lin', "z", z, "k_h", k/h, "P_k", -Pk*h**3) # be careful with sign of cross spectrum
+                k, z, Pk = self.provider.get_Pk_grid(nonlinear=(not self.linear_only), var_pair=("weyl", "weyl"))
+                block.put_grid('weyl_curvature_power_nl', "z", z, "k_h", k/h, "P_k", Pk*h**3)
+                k, z, Pk = self.provider.get_Pk_grid(nonlinear=False, var_pair=("weyl", "weyl"))
+                block.put_grid('weyl_curvature_power_lin', "z", z, "k_h", k/h, "P_k", Pk*h**3)
         
         for section in block.sections():
             state[self.renames_output.get(section, section).lower()] = {name: block[section, name] for (section, name) in block.keys(section=section)}

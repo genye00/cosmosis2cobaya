@@ -31,12 +31,11 @@ class pk_to_cl_gg(project_2d):
 
 class pk_to_cl(project_2d):
     def cosmosis_datablock_inputs(self):
-        return [
+        ret = [
             'cosmological_parameters',
             'bias_lens',
             'mag_alpha_lens',
             'distances',
-            'matter_power_nl',
             'matter_power_nl',
             'nz_lens',
             'nz_source',
@@ -44,8 +43,36 @@ class pk_to_cl(project_2d):
             'matter_intrinsic_power',
             'intrinsic_power',
         ]
+        for pair in self.options.items("pk_to_cl"):
+            if pair[0] in ["weyl-weyl", 
+                           "lingal-weyl", 
+                           "weyl-lingal", 
+                           "position-weyl", 
+                           "weyl-position", 
+                           "density-weyl", 
+                           "weyl-density",
+                           ]:
+                ret += ['matter_weyl_power_nl', 'weyl_curvature_power_nl',]
+                break
+        return ret
     def cosmosis_datablock_outputs(self):
-        return ['cmbkappa_cl', 'galaxy_cmbkappa_cl', 'galaxy_intrinsic_cl', 'galaxy_magnification_cl', 'galaxy_shear_cl', 'intrinsic_cmbkappa_cl', 'magnification_cl', 'magnification_cmbkappa_cl', 'magnification_intrinsic_cl', 'magnification_shear_cl', 'shear_cl', 'shear_cl_bb', 'shear_cl_gi', 'shear_cl_ii', 'shear_cmbkappa_cl']
+        return [
+            'cmbkappa_cl', 
+            'galaxy_cmbkappa_cl', 
+            'galaxy_intrinsic_cl', 
+            'galaxy_magnification_cl', 
+            'galaxy_shear_cl', 
+            'intrinsic_cmbkappa_cl', 
+            'magnification_cl', 
+            'magnification_cmbkappa_cl', 
+            'magnification_intrinsic_cl', 
+            'magnification_shear_cl', 
+            'shear_cl', 
+            'shear_cl_bb', 
+            'shear_cl_gi', 
+            'shear_cl_ii', 
+            'shear_cmbkappa_cl',
+            ]
 
 class pk_to_cl_kids(project_2d):
 

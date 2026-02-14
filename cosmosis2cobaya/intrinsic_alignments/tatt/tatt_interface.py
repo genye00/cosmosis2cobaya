@@ -11,7 +11,8 @@ class tatt_interface(base):
             'intrinsic_power_ee',
             'intrinsic_power_bb',
             'matter_intrinsic_power',
-            'intrinsic_alignment_parameters'
+            'weyl_intrinsic_power',
+            'intrinsic_alignment_parameters',
         ]
 
 class IA(tatt_interface):

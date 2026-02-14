@@ -44,16 +44,8 @@ class pk_to_cl(project_2d):
             'intrinsic_power',
         ]
         for pair in self.options.items("pk_to_cl"):
-            if pair[0] in ["weyl-weyl", 
-                           "lingal-weyl", 
-                           "weyl-lingal", 
-                           "position-weyl", 
-                           "weyl-position", 
-                           "density-weyl", 
-                           "weyl-density",
-                           ]:
-                ret += ['matter_weyl_power_nl', 'weyl_curvature_power_nl',]
-                break
+            if 'magnificationw' in pair[0].split('-') or 'shearw' in pair[0].split('-'):
+                ret += ['matter_weyl_power_nl', 'weyl_curvature_power_nl', 'weyl_intrinsic_power']
         return ret
     def cosmosis_datablock_outputs(self):
         return [

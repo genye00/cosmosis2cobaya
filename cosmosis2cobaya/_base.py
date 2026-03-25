@@ -118,6 +118,8 @@ class base(Theory):
             state[self.renames_output.get(section.lower(), section).lower()] = {name: data_package[section, name] for (section, name) in data_package.keys(section=section)}
         
         if isinstance(self, base_Likelihood):
+            for (section, name) in data_package.keys(section='likelihoods'):
+                self.log.debug("Likelihood for %s is %s.", name, data_package[section, name])
             state['logp'] = sum(data_package[section, name] for (section, name) in data_package.keys(section='likelihoods'))
        
     

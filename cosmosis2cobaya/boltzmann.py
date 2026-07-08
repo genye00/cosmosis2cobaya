@@ -7,6 +7,7 @@ import cosmosis.datablock
 import cosmosis.runtime.module
 import cosmosis.runtime.config
 from cosmosis.runtime.pipeline import config_to_block, PIPELINE_INI_SECTION
+from cobaya.log import LoggedError
 
 class boltzmann(Theory):
     renames_output = {}
@@ -39,6 +40,10 @@ class boltzmann(Theory):
         self.z_background = np.linspace(self.zmin_background, self.zmax_background, self.nz_background)
         log_z = np.geomspace(self.zmax_background, self.zmax_logz, num=self.n_logz)
         self.z_background = np.append(self.z_background, log_z[1:])
+        self.z_grid = np.concatenate((
+                np.linspace(self.zmin, self.zmid, self.nz_mid, endpoint=False),
+                np.linspace(self.zmid, self.zmax, self.nz-self.nz_mid),
+            )) if self.zmid is not None else np.linspace(self.zmin, self.zmax, self.nz)
     
     def get_requirements(self):
         ret = {
@@ -52,24 +57,19 @@ class boltzmann(Theory):
             ret['CAMBdata'] = None
         vars_pairs = [["delta_tot", "delta_tot"]]
         if self.use_weyl: vars_pairs += [["Weyl", "Weyl"], ["Weyl", "delta_tot"]]
-        if self.same_k_grid:
-            self.Pk_interpolator_z = np.concatenate((
-                np.linspace(self.zmin, self.zmid, self.nz_mid, endpoint=False),
-                np.linspace(self.zmid, self.zmax, self.nz-self.nz_mid),
-            )) if self.zmid is not None else np.linspace(self.zmin, self.zmax, self.nz)
-            ret['Pk_interpolator'] = {
-                'z': self.Pk_interpolator_z,
-                'k_max': self.kmax, # 1/Mpc, allow H0 up to 100
-                'vars_pairs': vars_pairs,
-                'nonlinear': [True, False] if not self.linear_only else [False],
-            }
-        else:
-            ret['Pk_grid'] = {
+        ret['Pk_grid'] = {
                 'z': np.concatenate((
                     np.linspace(self.zmin, self.zmid, self.nz_mid, endpoint=False),
                     np.linspace(self.zmid, self.zmax, self.nz-self.nz_mid),
                 )) if self.zmid is not None else
                 np.linspace(self.zmin, self.zmax, self.nz),
+                'k_max': self.kmax, # 1/Mpc, allow H0 up to 100
+                'vars_pairs': vars_pairs,
+                'nonlinear': [True, False] if not self.linear_only else [False],
+            }
+        if self.same_k_grid:
+            ret['Pk_interpolator'] = {
+                'z': self.z_grid,
                 'k_max': self.kmax, # 1/Mpc, allow H0 up to 100
                 'vars_pairs': vars_pairs,
                 'nonlinear': [True, False] if not self.linear_only else [False],
@@ -112,7 +112,7 @@ class boltzmann(Theory):
             block['distances', 'CHISTAR'] = CAMBdata.conformal_time(0) - CAMBdata.tau_maxvis
 
         if self.same_k_grid:
-            z = self.Pk_interpolator_z
+            z = self.z_grid
             kmax_power = max(self.kmax, self.kmax_extrapolate)
             lin_Pk = self.provider.get_Pk_interpolator(nonlinear=False, extrap_kmin=self.kmin*h, extrap_kmax=self.kmax_extrapolate*h, var_pair=("delta_tot", "delta_tot"))
             nolin_Pk = self.provider.get_Pk_interpolator(nonlinear=(not self.linear_only), extrap_kmin=self.kmin*h, extrap_kmax=self.kmax_extrapolate*h, var_pair=("delta_tot", "delta_tot"))
@@ -123,6 +123,10 @@ class boltzmann(Theory):
             block.put_grid('matter_power_lin', "z", z, "k_h", k, "P_k", p_lin*h**3)
             block.put_grid('matter_power_nl', "z", z, "k_h", k, "P_k", p_nl*h**3)
             if self.use_weyl:
+                _, _, pktmp = self.provider.get_Pk_grid(nonlinear=False, var_pair=("delta_tot", "Weyl"))
+                if (np.any(pktmp<0) and np.any(pktmp>0)):
+                    print("delta-Weyl cross correlation crosses zero, rejecting point.")
+                    return False
                 lin_Pk_mw = self.provider.get_Pk_interpolator(nonlinear=False, extrap_kmin=self.kmin*h, extrap_kmax=self.kmax_extrapolate*h, var_pair=("delta_tot", "Weyl"))
                 p_lin = -lin_Pk_mw.P(z, k*h, grid=True) # be careful with sign of cross spectrum
                 # nl not resolved for MG, use boost for now
@@ -139,18 +143,18 @@ class boltzmann(Theory):
                 block.put_grid('weyl_curvature_power_lin', "z", z, "k_h", k, "P_k", p_lin*h**3)
                 block.put_grid('weyl_curvature_power_nl', "z", z, "k_h", k, "P_k", p_nl*h**3)
         else:
-            k, z, Pk_lin = self.provider.get_Pk_grid(nonlinear=False, extrap_kmin=self.kmin*h, extrap_kmax=self.kmax_extrapolate*h, var_pair=("delta_tot", "delta_tot"))
+            k, z, Pk_lin = self.provider.get_Pk_grid(nonlinear=False, var_pair=("delta_tot", "delta_tot"))
             block.put_grid('matter_power_lin', "z", z, "k_h", k/h, "P_k", Pk_lin*h**3)
             k, z, Pk_nl = self.provider.get_Pk_grid(nonlinear=(not self.linear_only), var_pair=("delta_tot", "delta_tot"))
             block.put_grid('matter_power_nl', "z", z, "k_h", k/h, "P_k", Pk_nl*h**3)
             boost = Pk_nl/Pk_lin
             if self.use_weyl:
-                k, z, Pk = self.provider.get_Pk_grid(nonlinear=False, extrap_kmin=self.kmin*h, extrap_kmax=self.kmax_extrapolate*h, var_pair=("delta_tot", "Weyl"))
+                k, z, Pk = self.provider.get_Pk_grid(nonlinear=False, var_pair=("delta_tot", "Weyl"))
                 block.put_grid('matter_weyl_power_lin', "z", z, "k_h", k/h, "P_k", -Pk*h**3) # be careful with sign of cross spectrum
                 block.put_grid('matter_weyl_power_nl', "z", z, "k_h", k/h, "P_k", -boost*Pk*h**3)
                 # k, z, Pk = self.provider.get_Pk_grid(nonlinear=(not self.linear_only), var_pair=("delta_tot", "Weyl"))
                 # block.put_grid('matter_weyl_power_nl', "z", z, "k_h", k/h, "P_k", -Pk*h**3) # be careful with sign of cross spectrum
-                k, z, Pk = self.provider.get_Pk_grid(nonlinear=False, extrap_kmin=self.kmin*h, extrap_kmax=self.kmax_extrapolate*h, var_pair=("Weyl", "Weyl"))
+                k, z, Pk = self.provider.get_Pk_grid(nonlinear=False, var_pair=("Weyl", "Weyl"))
                 block.put_grid('weyl_curvature_power_lin', "z", z, "k_h", k/h, "P_k", Pk*h**3)
                 block.put_grid('weyl_curvature_power_nl', "z", z, "k_h", k/h, "P_k", boost*Pk*h**3)
                 # k, z, Pk = self.provider.get_Pk_grid(nonlinear=(not self.linear_only), var_pair=("Weyl", "Weyl"))

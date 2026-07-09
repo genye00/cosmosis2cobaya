@@ -31,6 +31,7 @@ class boltzmann(Theory):
     want_zstar = False
     linear_only = False # set all nonlinear spectra to be same as the linear ones
     use_weyl = False # whether compute the weyl-weyl and density-weyl spectra
+    external_fz = False # whether get the growth rate from another provider
 
     def initialize(self):
         if self.zmax_background is None:
@@ -74,6 +75,8 @@ class boltzmann(Theory):
                 'vars_pairs': vars_pairs,
                 'nonlinear': [True, False] if not self.linear_only else [False],
             }
+        if self.external_fz:
+            ret["fz"] = None
         return ret
     
     def get_can_provide(self):
@@ -89,6 +92,8 @@ class boltzmann(Theory):
                     'weyl_curvature_power_lin',
                     'weyl_curvature_power_nl',
                     ]
+        if self.external_fz:
+            ret += ['growth_parameters']
         return ret
     
     def calculate(self, state, want_derived=True, **params_values_dict):
@@ -110,6 +115,11 @@ class boltzmann(Theory):
         if self.want_chistar:
             CAMBdata = self.provider.get_CAMBdata()
             block['distances', 'CHISTAR'] = CAMBdata.conformal_time(0) - CAMBdata.tau_maxvis
+
+        if self.external_fz:
+            z, fz = self.provider.get_fz()
+            block["growth_parameters", "z"] = np.flip(z) 
+            block["growth_parameters", "f_z"] = np.flip(fz)
 
         if self.same_k_grid:
             z = self.z_grid

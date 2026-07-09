@@ -16,14 +16,19 @@ class project_2d(base, metaclass=abc.ABCMeta):
 
 class pk_to_cl_gg(project_2d):
     def cosmosis_datablock_inputs(self):
-        return [
+        ret = [
             'cosmological_parameters',
             'bias_lens',
             'distances',
             'matter_power_lin',
             'matter_power_nl',
             'nz_lens',
+            'growth_parameters',
         ]
+        # for pair in self.options.items("pk_to_cl_gg"):
+        #     if pair is ('fz_from_block', 'True') or pair is ('fz_from_block', 'true'):
+        #         ret += ['growth_parameters']
+        return ret
     def cosmosis_datablock_outputs(self):
         return [
             'galaxy_cl',

@@ -2,14 +2,12 @@ import os, importlib, sys
 from pathlib import Path
 import numpy as np
 from cosmosis2cobaya._base import base_Likelihood
+from ..twopoint_cosmosis import theory_names
 
 class TwoPointLikelihood(base_Likelihood):
     name = '2pt_like_mass'
     
     def cosmosis_datablock_inputs(self):
-        root_directory = os.getenv('COSMOSIS_ROOT_DIRECTORY')
-        sys.path.insert(0, Path(root_directory) / 'likelihood/2pt')
-        from twopoint_cosmosis import theory_names
 
         lkl = self.module.data
         if len(lkl.suffixes) == 1:

@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Mapping, Iterable, Optional
 import os
+import numpy as np
+import re
 from cobaya.likelihood import Likelihood
 from cobaya.theory import Theory
 from cobaya.model import as_requirement_list
@@ -116,12 +118,27 @@ class base(Theory):
                 state[section] = data_package.get_metadata(sec, name, key)
             self.log.debug("Section %s written to cobaya as %s", section, self.renames_output.get(section, section).lower())
             state[self.renames_output.get(section.lower(), section).lower()] = {name: data_package[section, name] for (section, name) in data_package.keys(section=section)}
-        
+
+        if self.__class__.__name__ in ["pk_to_cl", "pk_to_cl_gg"]:
+            for (section, name) in data_package.keys():
+                if section in ["shear_cl", "galaxy_cl", "galaxy_shear_cl"]:
+                    if re.search(pattern=r"bin_[0-9]+_[0-9]+", string=name):
+                        # print(section, name)
+                        np.savetxt("output/tmp/"+section+"_"+name+".txt", data_package[section, name])
+
         if isinstance(self, base_Likelihood):
             for (section, name) in data_package.keys(section='likelihoods'):
                 self.log.debug("Likelihood for %s is %s.", name, data_package[section, name])
+            for (section, name) in data_package.keys(section='data_vector'):
+                if "_chi2" in name or "_CHI2" in name:
+                    self.log.debug("Chi2 for %s is %s.", name, data_package[section, name])
             state['logp'] = sum(data_package[section, name] for (section, name) in data_package.keys(section='likelihoods'))
-       
+            for (section, name) in data_package.keys():
+                # print(section, name)
+                if section in ["galaxy_xi", "galaxy_shear_xi"]:
+                    if re.search(pattern=r"bin_[0-9]+_[0-9]+", string=name):
+                        # print(section, name)
+                        np.savetxt("output/tmp/"+section+"_"+name+".txt", data_package[section, name])
     
     def close(self):
         self.module.cleanup()
